@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\UserCredential;
 use App\Models\Profile;
 use App\Models\OtpCode;
+use App\Models\Role;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Hash;
@@ -34,19 +35,23 @@ class CustomerController extends Controller
         if ($validator->fails()) {
             return response()->json([
                 'status' => false,
+                'errors' => $validator->errors(),
                 'message' => 'اطلاعات وارد شده صحیح نیست.'
             ], 422);
         }
         $existingUser = UserCredential::where("phone", $request->phone)->where('is_deleted', false)->first();
+
         if ($existingUser) {
             return response()->json([
                 "status" => false,
                 "message" => "شما قبلا ثبت نام کردید،لطفا وارد حساب کاربری شوید."
             ], 409);
         }
+
         $user = new UserCredential();
         $user->phone = $request->phone;
         $user->password = Hash::make($request->password);
+        $user->role_id = 1;
         $user->save();
         $user->profile()->create([
             'name' => $request->name,
@@ -65,9 +70,19 @@ class CustomerController extends Controller
     public function getDataCustomer()
     {
         $profile = Profile::all();
+
+        if ($profile->isEmpty()) {
+            return response()->json([
+                'status' => false,
+                'message' => 'کاربری وجود ندارد',
+                'data' => []
+            ], 404);
+        }
+
         return response()->json([
+            'message' => 'اطلاعات با موفقیت دریافت شد',
             'data' => $profile
-        ]);
+        ], 200);
     }
 
 
@@ -75,6 +90,8 @@ class CustomerController extends Controller
 
     public function loginCustomer(Request $request)
     {
+
+
         $validator = Validator::make($request->all(), [
             'phone' => [
                 'required',
@@ -88,19 +105,23 @@ class CustomerController extends Controller
 
             ],
         ]);
+
         if ($validator->fails()) {
             return response()->json([
                 'status' => false,
+                'errors' => $validator->errors(),
                 'message' => 'اطلاعات وارد شده صحیح نیست.'
             ], 422);
         }
         $user = UserCredential::where("phone", $request->phone)->where('is_deleted', false)->first();
+
         if (!$user) {
             return response()->json([
                 "status" => false,
                 "message" => "کاربر یافت نشد"
             ], 404);
         }
+
         if (!Hash::check($request->password, $user->password)) {
             return response()->json([
                 "status" => false,
@@ -108,8 +129,12 @@ class CustomerController extends Controller
             ], 401);
         }
         $token = $user->createToken('auth-token')->plainTextToken;
+
+        $profile = Profile::where('user_credentials_id', $user->id)->select('id', 'name', 'family')->first();
+
         return response()->json([
             "status" => true,
+            "data" => $profile,
             'message' => 'ورود با موفقیت انجام شد.',
             'token' => $token
         ], 200);
@@ -132,7 +157,7 @@ class CustomerController extends Controller
                 'message' => 'اطلاعات نامعتبر هست',
             ], 402);
         }
-        $user = userCredential::where('phone', $request->phone)->where('is_deleted', false)->first();
+        $user = UserCredential::where('phone', $request->phone)->where('is_deleted', false)->first();
         if (!$user) {
             return response()->json([
 
@@ -175,7 +200,7 @@ class CustomerController extends Controller
             ], 422);
         }
 
-        $otp = OtpCode::where('code', $request->code)->latest()->first();
+        $otp = OtpCode::where('code', $request->code)->whereNull('used_at')->latest('id')->first();
         if (!$otp) {
             return response()->json([
                 'status' => false,
@@ -210,10 +235,14 @@ class CustomerController extends Controller
             'phone' => $user->phone
         ], 200);
     }
+
+
+
+
     public function changePassword(Request $request)
     {
-        $customer = UserCredential::where('phone',$request->userPhone)->first();
-       
+        $customer = UserCredential::where('phone', $request->userPhone)->first();
+
         if (!$customer) {
             return response()->json([
                 "status" => false,
@@ -232,15 +261,39 @@ class CustomerController extends Controller
         if ($validator->fails()) {
             return response()->json([
                 'status' => false,
+                'errors' => $validator->errors(),
                 'message' => 'اطلاعات وارد شده صحیح نیست.'
             ], 422);
         }
-        $customer->update(['password'=>Hash::make($request->password)]);
+        $customer->update(['password' => Hash::make($request->password)]);
         return response()->json([
             'status' => true,
-              'message' => 'رمز عبور با موفقیت تغییر کرد.'
-            
-        ], 200);
+            'message' => 'رمز عبور با موفقیت تغییر کرد.'
 
+        ], 200);
+    }
+
+
+
+    public function addRole(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'name' => 'required|string|unique:roles,name'
+        ]);
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => false,
+                'errors' => $validator->errors(),
+                'message' => 'نام نقش معتبر نیست.'
+            ], 422);
+        }
+        $role = new Role();
+        $role->name = $request->name;
+        $role->save();
+        return response()->json([
+            'status' => true,
+            'message' => 'نقش با موفقیت ایجاد شد.',
+            'role' => $role
+        ], 200);
     }
 }
